@@ -42,6 +42,9 @@ class DenseRetriever:
         if p_encoder_ckpt == None:
             self.p_encoder_ckpt = model_name_or_path
             self.q_encoder_ckpt = model_name_or_path
+        else:
+            self.p_encoder_ckpt = p_encoder_ckpt
+            self.q_encoder_ckpt = q_encoder_ckpt
 
         # 모델에 따라서 변수 세팅
         if self.model_name_or_path.find("roberta") != -1:
