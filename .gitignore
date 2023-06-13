@@ -165,3 +165,7 @@ cython_debug/
 
 baseline/wandb
 baseline/wandb/latest-run
+
+models/
+outputs/
+wandb/
