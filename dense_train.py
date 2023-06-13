@@ -38,7 +38,7 @@ if __name__ == "__main__":
     retriever = DenseRetriever(
         data_path=data_path,
         context_path=context_path,
-        model_name_or_path=model_args.model_name_or_path,
+        model_name_or_path=model_args.encoder_base,
     )
     print("Training Encoders ...")
     retriever.train(args)
