@@ -169,3 +169,4 @@ baseline/wandb/latest-run
 models/
 outputs/
 wandb/
+encoders/

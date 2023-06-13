@@ -30,7 +30,7 @@ if __name__ == "__main__":
         learning_rate=2e-5,
         per_device_train_batch_size=4,
         per_device_eval_batch_size=4,
-        num_train_epochs=5,
+        num_train_epochs=1,
         warmup_ratio=0.2,
         weight_decay=0.01,
     )
@@ -39,7 +39,9 @@ if __name__ == "__main__":
         data_path=data_path,
         context_path=context_path,
         model_name_or_path=model_args.encoder_base,
+        use_neg_sampling=False,
     )
+
     print("Training Encoders ...")
     retriever.train(args)
     print("Training Done!")

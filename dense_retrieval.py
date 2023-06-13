@@ -6,115 +6,20 @@ import random
 import torch
 import torch.nn.functional as F
 from transformers import (
-    BertModel,
-    BertPreTrainedModel,
     AdamW,
-    RobertaModel,
-    RobertaPreTrainedModel,
-    BartModel,
-    BartPretrainedModel,
     get_linear_schedule_with_warmup,
-    T5Model,
-    T5PreTrainedModel,
-    ElectraPreTrainedModel,
-    ElectraModel,
 )
 from torch.utils.data import DataLoader, RandomSampler, TensorDataset, SequentialSampler
-import faiss
 import os
 import json
 import pickle
 import pandas as pd
+from encoder import *
 
 torch.manual_seed(2023)
 torch.cuda.manual_seed(2023)
 np.random.seed(2023)
 random.seed(2023)
-
-
-class RoBertaEncoder(RobertaPreTrainedModel):
-    def __init__(self, config):
-        super(RoBertaEncoder, self).__init__(config)
-
-        self.roberta = RobertaModel(config)
-        self.init_weights()
-
-    def forward(self, input_ids, attention_mask=None, token_type_ids=None):
-        outputs = self.roberta(
-            input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids
-        )
-
-        pooled_output = outputs[1]
-
-        return pooled_output
-
-
-class BertEncoder(BertPreTrainedModel):
-    def __init__(self, config):
-        super(BertEncoder, self).__init__(config)
-
-        self.bert = BertModel(config)
-        self.init_weights()
-
-    def forward(self, input_ids, attention_mask=None, token_type_ids=None):
-        outputs = self.bert(
-            input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids
-        )
-
-        pooled_output = outputs[1]
-
-        return pooled_output
-
-
-class BartEncoder(BartPretrainedModel):
-    def __init__(self, config):
-        super(BartEncoder, self).__init__(config)
-
-        self.bart = BartModel(config)
-        self.init_weights()
-
-    def forward(self, input_ids, attention_mask=None, token_type_ids=None):
-        outputs = self.bart(
-            input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids
-        )
-
-        pooled_output = outputs[1]
-
-        return pooled_output
-
-
-class T5Encoder(T5PreTrainedModel):
-    def __init__(self, config):
-        super(T5Encoder, self).__init__(config)
-
-        self.t5 = T5Model(config)
-        self.init_weights()
-
-    def forward(self, input_ids, attention_mask=None, token_type_ids=None):
-        outputs = self.t5(
-            input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids
-        )
-
-        pooled_output = outputs[1]
-
-        return pooled_output
-
-
-class ElectraEncoder(ElectraPreTrainedModel):
-    def __init__(self, config):
-        super(ElectraEncoder, self).__init__(config)
-
-        self.electra = ElectraModel(config)
-        self.init_weights()
-
-    def forward(self, input_ids, attention_mask=None, token_type_ids=None):
-        outputs = self.electra(
-            input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids
-        )
-
-        pooled_output = outputs[1]
-
-        return pooled_output
 
 
 class DenseRetriever:
@@ -123,8 +28,8 @@ class DenseRetriever:
         data_path,
         context_path,
         model_name_or_path,
-        p_encoder_ckpt,
-        q_encoder_ckpt,
+        p_encoder_ckpt=None,
+        q_encoder_ckpt=None,
         stage="train",
         use_neg_sampling=False,
         num_neg=3,
@@ -133,6 +38,10 @@ class DenseRetriever:
         self.stage = stage
         self.num_neg = num_neg
         self.use_neg_sampling = use_neg_sampling
+
+        if p_encoder_ckpt == None:
+            self.p_encoder_ckpt = model_name_or_path
+            self.q_encoder_ckpt = model_name_or_path
 
         # 모델에 따라서 변수 세팅
         if self.model_name_or_path.find("roberta") != -1:
@@ -234,24 +143,24 @@ class DenseRetriever:
 
         # 모델에 따라서 인코더 세팅
         if self.isRoberta:
-            self.p_encoder = RoBertaEncoder.from_pretrained(p_encoder_ckpt)
-            self.q_encoder = RoBertaEncoder.from_pretrained(q_encoder_ckpt)
+            self.p_encoder = RoBertaEncoder.from_pretrained(self.p_encoder_ckpt)
+            self.q_encoder = RoBertaEncoder.from_pretrained(self.q_encoder_ckpt)
 
         elif self.isBart:
-            self.p_encoder = BartEncoder.from_pretrained(p_encoder_ckpt)
-            self.q_encoder = BartEncoder.from_pretrained(q_encoder_ckpt)
+            self.p_encoder = BartEncoder.from_pretrained(self.p_encoder_ckpt)
+            self.q_encoder = BartEncoder.from_pretrained(self.q_encoder_ckpt)
 
         elif self.isT5:
-            self.p_encoder = T5Encoder.from_pretrained(p_encoder_ckpt)
-            self.q_encoder = T5Encoder.from_pretrained(q_encoder_ckpt)
+            self.p_encoder = T5Encoder.from_pretrained(self.p_encoder_ckpt)
+            self.q_encoder = T5Encoder.from_pretrained(self.q_encoder_ckpt)
 
         elif self.isElectra:
-            self.p_encoder = ElectraEncoder.from_pretrained(p_encoder_ckpt)
-            self.q_encoder = ElectraEncoder.from_pretrained(q_encoder_ckpt)
+            self.p_encoder = ElectraEncoder.from_pretrained(self.p_encoder_ckpt)
+            self.q_encoder = ElectraEncoder.from_pretrained(self.q_encoder_ckpt)
 
         else:
-            self.p_encoder = BertEncoder.from_pretrained(p_encoder_ckpt)
-            self.q_encoder = BertEncoder.from_pretrained(q_encoder_ckpt)
+            self.p_encoder = BertEncoder.from_pretrained(self.p_encoder_ckpt)
+            self.q_encoder = BertEncoder.from_pretrained(self.q_encoder_ckpt)
 
         if torch.cuda.is_available():
             self.p_encoder.cuda()
