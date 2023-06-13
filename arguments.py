@@ -31,15 +31,15 @@ class ModelArguments:
         metadata={"help": "Base model of Encoder"},
     )
     q_encoder_path: Optional[str] = field(
-        default="./encoders/p_encoder",
+        default="./encoders/p_encoder/",
         metadata={"help": "Name of q encoder to be saved"},
     )
     p_encoder_path: Optional[str] = field(
-        default="./encoders/q_encoder",
+        default="./encoders/q_encoder/",
         metadata={"help": "Name of p encoder to be saved"},
     )
     p_encoder_ckpt: Optional[str] = field(
-        default="./encoders/p_encoder",
+        default="./encoders/p_encoder/",
         metadata={"help": "Name of p encoder to load"},
     )
     q_encoder_ckpt: Optional[str] = field(
