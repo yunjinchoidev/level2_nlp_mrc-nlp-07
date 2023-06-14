@@ -21,9 +21,9 @@ class ElasticRetrieval:
         body = {
             'query': {
                 'match': {
-                    'content': {
+                    'content': { # <주의> content 로 저장했기 때문에 'content' 컬럼에 대해서 검색하는 것!!
                         'query': query,
-                        'fuzziness': 'AUTO'# <주의> content 로 저장했기 때문에 'content' 컬럼에 대해서 검색하는 것!!
+                        'fuzziness': 'AUTO'
                     }
                 }
             }
