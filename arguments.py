@@ -7,7 +7,9 @@ class ModelArguments:
     """
     Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
     """
-
+    wandb_name: str = field(
+        default="", metadata={"help": "Wandb run name. Format should be: \{num\}_\{run-name\}"}
+    )
     model_name_or_path: str = field(
         default="klue/bert-base",
         metadata={
@@ -111,3 +113,6 @@ class DataTrainingArguments:
         default=False, metadata={"help": "Whether to build with faiss"}
     )
     use_dense: bool = field(default=False, metadata={"help": "Whether to use DPR"})
+    retriever: str = field(
+        default="tfidf", metadata={"help": "type of retriever to use"}
+    )
