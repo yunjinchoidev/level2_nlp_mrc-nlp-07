@@ -26,7 +26,7 @@ settings = {
 
 
 # 1) context 데이터를 바로 Elasticsearch에 저장
-INDEX_NAME = 'odqa_dataset_by_bm25_yunjin' # es 에 올릴 인덱스 이름을 지정 (겹치면 에러 발생)
+INDEX_NAME = 'odqa_dataset_by_bm25' # es 에 올릴 인덱스 이름을 지정 (겹치면 에러 발생)
 es.indices.create(index=INDEX_NAME, body=settings) # 인덱스 생성 (= DB 스키마 생성)
 
 for i, data in enumerate(dataset['train']):
