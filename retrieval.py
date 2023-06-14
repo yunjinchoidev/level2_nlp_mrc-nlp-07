@@ -11,6 +11,10 @@ import pandas as pd
 from datasets import Dataset, concatenate_datasets, load_from_disk
 from sklearn.feature_extraction.text import TfidfVectorizer
 from tqdm.auto import tqdm
+import wandb
+import datetime
+from pytz import timezone
+from utils import retieval_logging
 
 
 @contextmanager
@@ -192,6 +196,12 @@ class SparseRetrieval:
                     # validation 데이터를 사용하면 ground_truth context와 answer도 반환합니다.
                     tmp["original_context"] = example["context"]
                     tmp["answers"] = example["answers"]
+
+                # 평가를 위한 df column 만들어주기
+                for i in range(topk):
+                    tmp["context" + str(i + 1)] = self.contexts[doc_indices[idx][i]]
+                tmp['score'] = doc_scores[idx][:]
+
                 total.append(tmp)
 
             cqas = pd.DataFrame(total)
@@ -369,6 +379,17 @@ class SparseRetrieval:
 
 
 if __name__ == "__main__":
+
+    wandb_name = "13_sparse_validation_test"
+
+    wandb.init(
+        project="nlp07_mrc",
+        name=wandb_name
+        + "_"
+        + datetime.datetime.now(timezone("Asia/Seoul")).strftime("%m/%d %H:%M"),
+    )
+
+
     import argparse
 
     parser = argparse.ArgumentParser(description="")
@@ -431,13 +452,26 @@ if __name__ == "__main__":
 
     else:
         with timer("bulk query by exhaustive search"):
+
+
+            top_k = 50  # ground truth 를 확인할 passage 개수
+            term = 5  # term 단위로 확인함
+            
+            # 10 에서 부터 1/2 씩 감소 시키면서 계산 check_passage_cnt, term
+            weight = [(1 / 2**i) for i in range(0, top_k // term)]
+
             retriever.get_sparse_embedding()
-            df = retriever.retrieve(full_ds)
+            df = retriever.retrieve(full_ds, top_k)
             df["correct"] = df["original_context"] == df["context"]
             print(
                 "correct retrieval result by exhaustive search",
                 df["correct"].sum() / len(df),
             )
+
+            # check retrieval
+            retieval_logging.retrieval_check(df, weight, top_k, term)
+
+
 
         with timer("single query by exhaustive search"):
             scores, indices = retriever.retrieve(query)

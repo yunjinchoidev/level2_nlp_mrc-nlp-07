@@ -15,11 +15,18 @@ import json
 import pickle
 import pandas as pd
 from encoder import *
+import wandb
+import datetime
+from pytz import timezone
+import timer
+from utils import retieval_logging
+from datasets import Dataset, concatenate_datasets, load_from_disk
 
 torch.manual_seed(2023)
 torch.cuda.manual_seed(2023)
 np.random.seed(2023)
 random.seed(2023)
+
 
 
 class DenseRetriever:
@@ -423,7 +430,13 @@ class DenseRetriever:
             if "context" in example.keys() and "answers" in example.keys():
                 tmp["original_context"] = example["context"]
                 tmp["answers"] = example["answers"]
-            total.append(tmp)
+
+            # 평가를 위한 df column 만들어주기
+            relevant_doc_for_df = self.get_relevant_docs(example["question"], topk)[0]
+            for i in range(len(relevant_doc_for_df)):
+                tmp[f"context{i + 1}"] = relevant_doc_for_df[i]
+
+        total.append(tmp)
 
         # inference를 위한 df 반환
         cqas = pd.DataFrame(total)
@@ -433,3 +446,116 @@ class DenseRetriever:
     def save_trained_encoders(self, p_encoder_path, q_encoder_path):
         self.p_encoder.save_pretrained(p_encoder_path)
         self.q_encoder.save_pretrained(q_encoder_path)
+
+
+if __name__ == "__main__":
+
+    wandb_name = "13_sparse_validation_test"
+
+    wandb.init(
+        project="nlp07_mrc11",
+        name=wandb_name
+             + "_"
+             + datetime.datetime.now(timezone("Asia/Seoul")).strftime("%m/%d %H:%M"),
+    )
+
+    import argparse
+
+    parser = argparse.ArgumentParser(description="")
+    parser.add_argument(
+        "--dataset_name", default="../data/train_dataset", type=str, help=""
+    )
+    parser.add_argument(
+        "--model_name_or_path",
+        default="klue/bert-base",
+        type=str,
+        help="",
+    )
+    parser.add_argument("--data_path", default="../data/train_dataset", type=str, help="")
+    parser.add_argument(
+        "--context_path", default="../data/wikipedia_documents.json", type=str, help=""
+    )
+    parser.add_argument("--use_faiss", default=False, type=bool, help="")
+    parser.add_argument(
+        "--p_encoder_ckpt",
+        default="./encoders/p_encoder/",
+        type=str,
+        help="",
+    )
+    parser.add_argument(
+        "--q_encoder_ckpt",
+        default="./encoders/q_encoder/",
+        type=str,
+        help="",
+    )
+
+    args = parser.parse_args()
+    print(args)
+    # Test sparse
+    org_dataset = load_from_disk(args.dataset_name)
+    full_ds = concatenate_datasets(
+        [
+            org_dataset["train"].flatten_indices(),
+            org_dataset["validation"].flatten_indices(),
+        ]
+    )  # train dev 를 합친 4192 개 질문에 대해 모두 테스트
+    print("*" * 40, "query dataset", "*" * 40)
+
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model_name_or_path,
+        use_fast=False,
+    )
+
+    retriever = DenseRetriever(
+        data_path=args.data_path,
+        context_path=os.path.join(args.data_path, args.context_path),
+        model_name_or_path=args.model_name_or_path,
+        p_encoder_ckpt=args.p_encoder_ckpt,
+        q_encoder_ckpt=args.q_encoder_ckpt,
+        stage="test",
+    )
+
+    query = "대통령을 포함한 미국의 행정부 견제권을 갖는 국가 기관은?"
+
+    if args.use_faiss:
+        # test single query
+        retriever.get_sparse_embedding()
+        retriever.build_faiss()
+        with timer("single query by faiss"):
+            scores, indices = retriever.retrieve_faiss(query)
+
+        # test bulk
+        with timer("bulk query by exhaustive search"):
+            df = retriever.retrieve_faiss(full_ds)
+            df["correct"] = df["original_context"] == df["context"]
+
+            print("correct retrieval result by faiss", df["correct"].sum() / len(df))
+
+    else:
+        with timer("bulk query by exhaustive search"):
+
+            top_k = 50  # ground truth 를 확인할 passage 개수
+            term = 5  # term 단위로 확인함
+
+            # 10 에서 부터 1/2 씩 감소 시키면서 계산 check_passage_cnt, term
+            weight = [(1 / 2 ** i) for i in range(0, top_k // term)]
+
+            retriever.get_dense_embedding()
+            df = retriever.retrieve(full_ds, top_k)
+
+            df.to_csv("dense_result.csv", index=False)
+
+            df["correct"] = df["original_context"] == df["context"]
+            print(
+                "correct retrieval result by exhaustive search",
+                df["correct"].sum() / len(df),
+            )
+
+            # # check retrieval
+            retieval_logging.retrieval_check(df, weight, top_k, term)
+
+        # 단일 쿼리 에러가 나서 주석처리
+        # with timer("single query by exhaustive search"):
+        #     scores, indices = retriever.retrieve(query)
