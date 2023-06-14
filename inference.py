@@ -15,6 +15,7 @@ from datasets import Dataset, DatasetDict, Features, Sequence, Value, load_from_
 import evaluate
 from retrieval import SparseRetrieval
 from dense_retrieval import DenseRetriever
+from bm25plus_retrieval import BM25PlusRetriever
 from trainer_qa import QuestionAnsweringTrainer
 from transformers import (
     AutoConfig,
@@ -43,6 +44,7 @@ def main():
 
     training_args.do_train = True
 
+    print(f"retriever uses {data_args.retriever}")
     print(f"model is from {model_args.model_name_or_path}")
     print(f"data is from {data_args.dataset_name}")
 
@@ -83,7 +85,14 @@ def main():
 
     # True일 경우 : run passage retrieval
     if data_args.eval_retrieval:
-        if data_args.use_dense:
+        if data_args.retriever in ["tfidf", "bm25plus"]: # default tfidf
+            datasets = run_sparse_retrieval(
+                    tokenizer.tokenize,
+                    datasets,
+                    training_args,
+                    data_args,
+                )
+        elif data_args.use_dense or data_args.retriever == "dpr":
             datasets = run_dense_retrieval(
                 datasets,
                 training_args,
@@ -92,13 +101,6 @@ def main():
                 q_encoder_ckpt=model_args.q_encoder_ckpt,
                 model_name_or_path=model_args.encoder_base,
                 stage="test",
-            )
-        else:
-            datasets = run_sparse_retrieval(
-                tokenizer.tokenize,
-                datasets,
-                training_args,
-                data_args,
             )
 
     # eval or predict mrc model
@@ -115,18 +117,27 @@ def run_sparse_retrieval(
     context_path: str = "wikipedia_documents.json",
 ) -> DatasetDict:
     # Query에 맞는 Passage들을 Retrieval 합니다.
-    retriever = SparseRetrieval(
-        tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
-    )
-    retriever.get_sparse_embedding()
-
-    if data_args.use_faiss:
-        retriever.build_faiss(num_clusters=data_args.num_clusters)
-        df = retriever.retrieve_faiss(
-            datasets["validation"], topk=data_args.top_k_retrieval
+    
+    if data_args.retriever == "tfidf":
+        retriever = SparseRetrieval(
+            tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
         )
-    else:
-        df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+        retriever.get_sparse_embedding()
+
+        if data_args.use_faiss:
+            retriever.build_faiss(num_clusters=data_args.num_clusters)
+            df = retriever.retrieve_faiss(
+                datasets["validation"], topk=data_args.top_k_retrieval
+            )
+        else:
+            df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+    elif data_args.retriever == "bm25plus":
+        bm25plus_retriever = BM25PlusRetriever(
+            model_name_or_path="klue/bert-base",
+            data_path=data_path,
+            context_path=context_path
+        )
+        df = bm25plus_retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
 
     # test data 에 대해선 정답이 없으므로 id question context 로만 데이터셋이 구성됩니다.
     if training_args.do_predict:
@@ -137,6 +148,7 @@ def run_sparse_retrieval(
                 "question": Value(dtype="string", id=None),
             }
         )
+        df = df[["context", "id", "question"]]
 
     # train data 에 대해선 정답이 존재하므로 id question context answer 로 데이터셋이 구성됩니다.
     elif training_args.do_eval:
@@ -155,6 +167,8 @@ def run_sparse_retrieval(
                 "question": Value(dtype="string", id=None),
             }
         )
+        df = df[["answers","context", "id", "question"]]
+        
     datasets = DatasetDict({"validation": Dataset.from_pandas(df, features=f)})
     return datasets
 
@@ -196,6 +210,7 @@ def run_dense_retrieval(
                 "question": Value(dtype="string", id=None),
             }
         )
+        df = df[["context", "id", "question"]]
 
     # train data 에 대해선 정답이 존재하므로 id question context answer 로 데이터셋이 구성됩니다.
     elif training_args.do_eval:
@@ -214,6 +229,8 @@ def run_dense_retrieval(
                 "question": Value(dtype="string", id=None),
             }
         )
+        df = df[["answers","context", "id", "question"]]
+        
     datasets = DatasetDict({"validation": Dataset.from_pandas(df, features=f)})
     return datasets
 
