@@ -7,7 +7,9 @@ class ModelArguments:
     """
     Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
     """
-
+    wandb_name: str = field(
+        default="", metadata={"help": "Wandb run name. Format should be: \{num\}_\{run-name\}"}
+    )
     model_name_or_path: str = field(
         default="klue/bert-base",
         metadata={
@@ -31,15 +33,15 @@ class ModelArguments:
         metadata={"help": "Base model of Encoder"},
     )
     q_encoder_path: Optional[str] = field(
-        default="./encoders/p_encoder",
+        default="./encoders/p_encoder/",
         metadata={"help": "Name of q encoder to be saved"},
     )
     p_encoder_path: Optional[str] = field(
-        default="./encoders/q_encoder",
+        default="./encoders/q_encoder/",
         metadata={"help": "Name of p encoder to be saved"},
     )
     p_encoder_ckpt: Optional[str] = field(
-        default="./encoders/p_encoder",
+        default="./encoders/p_encoder/",
         metadata={"help": "Name of p encoder to load"},
     )
     q_encoder_ckpt: Optional[str] = field(
@@ -111,3 +113,6 @@ class DataTrainingArguments:
         default=False, metadata={"help": "Whether to build with faiss"}
     )
     use_dense: bool = field(default=False, metadata={"help": "Whether to use DPR"})
+    retriever: str = field(
+        default="tfidf", metadata={"help": "type of retriever to use"}
+    )
