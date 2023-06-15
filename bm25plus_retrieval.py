@@ -80,7 +80,7 @@ class BM25PlusRetriever:
             # 토큰화 된 context 파일 없으면 생성
             self.tokenized_contexts = []
             for doc in tqdm(self.contexts, desc="Tokenizing context"):
-                self.tokenized_contexts.append(self.tokenizer(doc, truncation=True)["input_ids"][1:-1]) # max_length=512 넘어가면 자름
+                self.tokenized_contexts.append(self.tokenizer(doc)["input_ids"][1:-1])
                 # 앞 [CLS], 뒤  [SEP] 토큰 제외
             with open(tokenized_wiki_path, "wb") as f:
                 pickle.dump(self.tokenized_contexts, f)
@@ -128,7 +128,7 @@ class BM25PlusRetriever:
             with timer("BM25+ retrieval"):
                 doc_scores = []
                 doc_indices = []
-                for query in tqdm(query_or_dataset["question"], desc="Retrieving documents"):
+                for query in tqdm(query_or_dataset["question"], desc="Retrieving documents for all questions"):
                     scores, indices = self.get_relevant_doc(query, k=topk)
                     doc_scores.append(scores)
                     doc_indices.append(indices)
@@ -183,7 +183,7 @@ class BM25PlusRetriever:
       
 if __name__ == "__main__":
 
-    wandb_name = "bm25plus_module_test"
+    wandb_name = "bm25plus-noTrunc"
 
     wandb.init(
         project="nlp07_mrc_retrieval_score",
