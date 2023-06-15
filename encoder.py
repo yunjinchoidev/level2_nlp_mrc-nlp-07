@@ -12,6 +12,7 @@ from transformers import (
     T5PreTrainedModel,
     ElectraPreTrainedModel,
     ElectraModel,
+    AutoModel,
 )
 
 
@@ -111,4 +112,32 @@ class ElectraEncoder(ElectraPreTrainedModel):
 
         pooled_output = self.pooler(outputs[0])
 
+        return pooled_output
+
+
+class SBertEncoder(BertPreTrainedModel):
+    def __init__(self, config):
+        super(SBertEncoder, self).__init__(config)
+
+        self.bert = AutoModel.from_config(config)
+        self.init_weights()
+
+    def mean_pooling(self, model_output, attention_mask):
+        token_embeddings = model_output[
+            0
+        ]  # First element of model_output contains all token embeddings
+        input_mask_expanded = (
+            attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+        )
+
+        return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(
+            input_mask_expanded.sum(1), min=1e-9
+        )
+
+    def forward(self, input_ids, attention_mask=None, token_type_ids=None):
+        outputs = self.bert(
+            input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids
+        )
+        pooled_output = self.mean_pooling(outputs, attention_mask)
+        # pooled_output = outputs[1]
         return pooled_output

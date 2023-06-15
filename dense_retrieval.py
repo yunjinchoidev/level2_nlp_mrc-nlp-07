@@ -28,7 +28,6 @@ np.random.seed(2023)
 random.seed(2023)
 
 
-
 class DenseRetriever:
     def __init__(
         self,
@@ -39,7 +38,7 @@ class DenseRetriever:
         q_encoder_ckpt=None,
         stage="train",
         use_neg_sampling=False,
-        num_neg=3,
+        num_neg=15,
     ):
         self.model_name_or_path = model_name_or_path
         self.stage = stage
@@ -54,25 +53,7 @@ class DenseRetriever:
             self.q_encoder_ckpt = q_encoder_ckpt
 
         # 모델에 따라서 변수 세팅
-        if self.model_name_or_path.find("roberta") != -1:
-            self.isRoberta = True
-        else:
-            self.isRoberta = False
-
-        if self.model_name_or_path.find("bart") != -1:
-            self.isBart = True
-        else:
-            self.isBart = False
-
-        if self.model_name_or_path.find("t5") != -1:
-            self.isT5 = True
-        else:
-            self.isT5 = False
-
-        if self.model_name_or_path.find("electra") != -1:
-            self.isElectra = True
-        else:
-            self.isElectra = False
+        self.set_models()
 
         # 학습용 데이터 불러오기
         self.dataset = load_from_disk(data_path)
@@ -99,23 +80,21 @@ class DenseRetriever:
         if stage == "train":
             # negative sampling을 사용하기 위한 데이터셋 세팅
             if self.use_neg_sampling:
-                corpus = list(set(training_dataset["context"]))
-                corpus = np.array(corpus)
+                corpus = training_dataset["context"]
+                neg_ex = training_dataset["negative_examples"]
+
                 p_with_neg = []
-                for c in training_dataset["context"]:
-                    while True:
-                        neg_idxs = np.random.randint(len(corpus), size=num_neg)
-                        if not c in corpus[neg_idxs]:
-                            p_neg = corpus[neg_idxs]
-                            p_with_neg.append(c)
-                            p_with_neg.extend(p_neg)
-                            break
+                for idx in tqdm(range(len(training_dataset))):
+                    p_with_neg.append(corpus[idx])
+                    p_with_neg.extend(neg_ex[idx])
+
                 p_seqs = self.tokenizer(
                     p_with_neg,
                     padding="max_length",
                     truncation=True,
                     return_tensors="pt",
                 )
+
                 max_len = p_seqs["input_ids"].size(-1)
                 p_seqs["input_ids"] = p_seqs["input_ids"].view(-1, num_neg + 1, max_len)
                 p_seqs["attention_mask"] = p_seqs["attention_mask"].view(
@@ -185,7 +164,11 @@ class DenseRetriever:
         self.ids = list(range(len(self.contexts)))
 
     def train(self, args):
-        train_sampler = RandomSampler(self.train_dataset)
+        if not self.use_neg_sampling:
+            train_sampler = RandomSampler(self.train_dataset)
+        else:
+            train_sampler = SequentialSampler(self.train_dataset)
+
         train_dataloader = DataLoader(
             self.train_dataset,
             sampler=train_sampler,
@@ -257,7 +240,10 @@ class DenseRetriever:
             for batch in Ibar:
                 self.q_encoder.train()
                 self.p_encoder.train()
-                targets = torch.arange(0, args.per_device_train_batch_size).long()
+                if self.use_neg_sampling:
+                    targets = torch.zeros(args.per_device_train_batch_size).long()
+                else:
+                    targets = torch.arange(0, args.per_device_train_batch_size).long()
 
                 # 배치와 타켓 모두 GPU 올리기
                 if torch.cuda.is_available():
@@ -447,16 +433,49 @@ class DenseRetriever:
         self.p_encoder.save_pretrained(p_encoder_path)
         self.q_encoder.save_pretrained(q_encoder_path)
 
+    def set_models(self):
+        if self.model_name_or_path.find("roberta") != -1:
+            print("Using Roberta Model")
+            self.isRoberta = True
+        else:
+            self.isRoberta = False
+
+        if self.model_name_or_path.find("bart") != -1:
+            print("Using Bart Model")
+            self.isBart = True
+        else:
+            self.isBart = False
+
+        if self.model_name_or_path.find("t5") != -1:
+            print("Using T5 Model")
+            self.isT5 = True
+        else:
+            self.isT5 = False
+
+        if self.model_name_or_path.find("electra") != -1:
+            print("Using Electra Model")
+            self.isElectra = True
+        else:
+            self.isElectra = False
+
+        if (
+            self.model_name_or_path.find("SBERT") != -1
+            or self.model_name_or_path.find("sbert") != -1
+        ):
+            print("Using SBert Model")
+            self.isSBert = True
+        else:
+            self.isSBert = False
+
 
 if __name__ == "__main__":
-
-    wandb_name = "13_sparse_validation_test"
+    wandb_name = "13_dense_validation_test"
 
     wandb.init(
         project="nlp07_mrc11",
         name=wandb_name
-             + "_"
-             + datetime.datetime.now(timezone("Asia/Seoul")).strftime("%m/%d %H:%M"),
+        + "_"
+        + datetime.datetime.now(timezone("Asia/Seoul")).strftime("%m/%d %H:%M"),
     )
 
     import argparse
@@ -471,7 +490,9 @@ if __name__ == "__main__":
         type=str,
         help="",
     )
-    parser.add_argument("--data_path", default="../data/train_dataset", type=str, help="")
+    parser.add_argument(
+        "--data_path", default="../data/train_dataset", type=str, help=""
+    )
     parser.add_argument(
         "--context_path", default="../data/wikipedia_documents.json", type=str, help=""
     )
@@ -535,12 +556,11 @@ if __name__ == "__main__":
 
     else:
         with timer("bulk query by exhaustive search"):
-
             top_k = 50  # ground truth 를 확인할 passage 개수
             term = 5  # term 단위로 확인함
 
             # 10 에서 부터 1/2 씩 감소 시키면서 계산 check_passage_cnt, term
-            weight = [(1 / 2 ** i) for i in range(0, top_k // term)]
+            weight = [(1 / 2**i) for i in range(0, top_k // term)]
 
             retriever.get_dense_embedding()
             df = retriever.retrieve(full_ds, top_k)
