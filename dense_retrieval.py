@@ -39,6 +39,7 @@ class DenseRetriever:
         stage="train",
         use_neg_sampling=False,
         num_neg=15,
+        use_HFBert=False,
     ):
         self.model_name_or_path = model_name_or_path
         self.stage = stage
@@ -146,6 +147,11 @@ class DenseRetriever:
         elif self.isElectra:
             self.p_encoder = ElectraEncoder.from_pretrained(self.p_encoder_ckpt)
             self.q_encoder = ElectraEncoder.from_pretrained(self.q_encoder_ckpt)
+
+        elif use_HFBert:
+            print("Using HFBert encoder")
+            self.p_encoder = HFBertEncoder.init_encoder(cfg_name=self.p_encoder_ckpt)
+            self.q_encoder = HFBertEncoder.init_encoder(cfg_name=self.q_encoder_ckpt)
 
         else:
             self.p_encoder = BertEncoder.from_pretrained(self.p_encoder_ckpt)
@@ -403,7 +409,7 @@ class DenseRetriever:
 
     def retrieve(self, query_or_dataset, topk=5):
         total = []
-        for example in query_or_dataset:
+        for example in tqdm(query_or_dataset, desc="Dense Retrieval"):
             tmp = {
                 "question": example["question"],
                 "id": example["id"],
@@ -422,7 +428,7 @@ class DenseRetriever:
             for i in range(len(relevant_doc_for_df)):
                 tmp[f"context{i + 1}"] = relevant_doc_for_df[i]
 
-        total.append(tmp)
+            total.append(tmp)
 
         # inference를 위한 df 반환
         cqas = pd.DataFrame(total)
@@ -469,7 +475,7 @@ class DenseRetriever:
 
 
 if __name__ == "__main__":
-    wandb_name = "13_dense_validation_test"
+    wandb_name = "25_HFBert_DPR_validation"
 
     wandb.init(
         project="nlp07_mrc11",
@@ -509,6 +515,12 @@ if __name__ == "__main__":
         type=str,
         help="",
     )
+    parser.add_argument(
+        "--use_HFBert",
+        default=False,
+        type=bool,
+        help="",
+    )
 
     args = parser.parse_args()
     print(args)
@@ -536,6 +548,7 @@ if __name__ == "__main__":
         p_encoder_ckpt=args.p_encoder_ckpt,
         q_encoder_ckpt=args.q_encoder_ckpt,
         stage="test",
+        use_HFBert=args.use_HFBert,
     )
 
     query = "대통령을 포함한 미국의 행정부 견제권을 갖는 국가 기관은?"
@@ -555,26 +568,26 @@ if __name__ == "__main__":
             print("correct retrieval result by faiss", df["correct"].sum() / len(df))
 
     else:
-        with timer("bulk query by exhaustive search"):
-            top_k = 50  # ground truth 를 확인할 passage 개수
-            term = 5  # term 단위로 확인함
+        # with timer("bulk query by exhaustive search"):
+        top_k = 50  # ground truth 를 확인할 passage 개수
+        term = 5  # term 단위로 확인함
 
-            # 10 에서 부터 1/2 씩 감소 시키면서 계산 check_passage_cnt, term
-            weight = [(1 / 2**i) for i in range(0, top_k // term)]
+        # 10 에서 부터 1/2 씩 감소 시키면서 계산 check_passage_cnt, term
+        weight = [(1 / 2**i) for i in range(0, top_k // term)]
 
-            retriever.get_dense_embedding()
-            df = retriever.retrieve(full_ds, top_k)
+        retriever.get_dense_embedding()
+        df = retriever.retrieve(full_ds, top_k)
 
-            df.to_csv("dense_result.csv", index=False)
+        df.to_csv("dense_result.csv", index=False)
 
-            df["correct"] = df["original_context"] == df["context"]
-            print(
-                "correct retrieval result by exhaustive search",
-                df["correct"].sum() / len(df),
-            )
+        df["correct"] = df["original_context"] == df["context"]
+        print(
+            "correct retrieval result by exhaustive search",
+            df["correct"].sum() / len(df),
+        )
 
-            # # check retrieval
-            retieval_logging.retrieval_check(df, weight, top_k, term)
+        # # check retrieval
+        retieval_logging.retrieval_check(df, weight, top_k, term)
 
         # 단일 쿼리 에러가 나서 주석처리
         # with timer("single query by exhaustive search"):

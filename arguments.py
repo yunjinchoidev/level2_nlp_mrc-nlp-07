@@ -7,8 +7,10 @@ class ModelArguments:
     """
     Arguments pertaining to which model/config/tokenizer we are going to fine-tune from.
     """
+
     wandb_name: str = field(
-        default="", metadata={"help": "Wandb run name. Format should be: \{num\}_\{run-name\}"}
+        default="",
+        metadata={"help": "Wandb run name. Format should be: \{num\}_\{run-name\}"},
     )
     model_name_or_path: str = field(
         default="klue/bert-base",
@@ -47,6 +49,9 @@ class ModelArguments:
     q_encoder_ckpt: Optional[str] = field(
         default="./encoders/q_encoder",
         metadata={"help": "Name of p encoder to load"},
+    )
+    use_HFBert: bool = field(
+        default=False, metadata={"help": "Whether to use HFBert Encoder"}
     )
 
 
