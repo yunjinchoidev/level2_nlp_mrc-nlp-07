@@ -39,7 +39,7 @@ class DenseRetriever:
         stage="train",
         use_neg_sampling=False,
         num_neg=15,
-        use_HFBert=False,
+        use_HFBert=True,
         do_valid=True,
     ):
         self.model_name_or_path = model_name_or_path
@@ -560,9 +560,11 @@ class DenseRetriever:
 
         else:
             if self.use_HFBert:
-                self.p_encoder = HFBertEncoder.init_encoder()
-                self.q_encoder = HFBertEncoder.init_encoder()
+                print("Using HFBert Model")
+                self.p_encoder = HFBertEncoder.init_encoder(cfg_name=p_encoder_ckpt)
+                self.q_encoder = HFBertEncoder.init_encoder(cfg_name=q_encoder_ckpt)
             else:
+                print("Using Bert Model")
                 self.p_encoder = BertEncoder.from_pretrained(p_encoder_ckpt)
                 self.q_encoder = BertEncoder.from_pretrained(q_encoder_ckpt)
 
