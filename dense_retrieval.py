@@ -39,11 +39,14 @@ class DenseRetriever:
         stage="train",
         use_neg_sampling=False,
         num_neg=15,
+        use_HFBert=True,
+        do_valid=True,
     ):
         self.model_name_or_path = model_name_or_path
         self.stage = stage
         self.num_neg = num_neg
         self.use_neg_sampling = use_neg_sampling
+        self.use_HFBert = use_HFBert
 
         if p_encoder_ckpt == None:
             self.p_encoder_ckpt = model_name_or_path
@@ -54,7 +57,7 @@ class DenseRetriever:
 
         # 모델에 따라서 변수 세팅
         self.set_models()
-
+        self.do_valid = do_valid
         # 학습용 데이터 불러오기
         self.dataset = load_from_disk(data_path)
 
@@ -63,6 +66,7 @@ class DenseRetriever:
             training_dataset = self.dataset["validation"]
         else:
             training_dataset = self.dataset["train"]
+            valid_dataset = self.dataset["validation"]
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name_or_path, model_max_length=512, use_fast=True
@@ -129,27 +133,29 @@ class DenseRetriever:
                     q_seqs["attention_mask"],
                     q_seqs["token_type_ids"],
                 )
+                val_q_seqs = self.tokenizer(
+                    valid_dataset["question"],
+                    padding="max_length",
+                    truncation=True,
+                    return_tensors="pt",
+                )
+                val_p_seqs = self.tokenizer(
+                    valid_dataset["context"],
+                    padding="max_length",
+                    truncation=True,
+                    return_tensors="pt",
+                )
+                self.valid_dataset = TensorDataset(
+                    val_p_seqs["input_ids"],
+                    val_p_seqs["attention_mask"],
+                    val_p_seqs["token_type_ids"],
+                    val_q_seqs["input_ids"],
+                    val_q_seqs["attention_mask"],
+                    val_q_seqs["token_type_ids"],
+                )
 
         # 모델에 따라서 인코더 세팅
-        if self.isRoberta:
-            self.p_encoder = RoBertaEncoder.from_pretrained(self.p_encoder_ckpt)
-            self.q_encoder = RoBertaEncoder.from_pretrained(self.q_encoder_ckpt)
-
-        elif self.isBart:
-            self.p_encoder = BartEncoder.from_pretrained(self.p_encoder_ckpt)
-            self.q_encoder = BartEncoder.from_pretrained(self.q_encoder_ckpt)
-
-        elif self.isT5:
-            self.p_encoder = T5Encoder.from_pretrained(self.p_encoder_ckpt)
-            self.q_encoder = T5Encoder.from_pretrained(self.q_encoder_ckpt)
-
-        elif self.isElectra:
-            self.p_encoder = ElectraEncoder.from_pretrained(self.p_encoder_ckpt)
-            self.q_encoder = ElectraEncoder.from_pretrained(self.q_encoder_ckpt)
-
-        else:
-            self.p_encoder = BertEncoder.from_pretrained(self.p_encoder_ckpt)
-            self.q_encoder = BertEncoder.from_pretrained(self.q_encoder_ckpt)
+        self.load_encoders(p_encoder_ckpt, q_encoder_ckpt)
 
         if torch.cuda.is_available():
             self.p_encoder.cuda()
@@ -174,6 +180,13 @@ class DenseRetriever:
             sampler=train_sampler,
             batch_size=args.per_device_train_batch_size,
         )
+
+        if self.do_valid:
+            valid_dataloader = DataLoader(
+                self.valid_dataset,
+                sampler=RandomSampler(self.valid_dataset),
+                batch_size=8,
+            )
 
         no_decay = ["bias", "LayerNorm.weight"]
         optimizer_grouped_parameters = [
@@ -234,9 +247,12 @@ class DenseRetriever:
         self.q_encoder.zero_grad()
         torch.cuda.empty_cache()
         Ebar = tqdm(range(args.num_train_epochs))
+        min_val_loss = 10
         for e in Ebar:
             Ebar.set_description(f"Epoch - {e}")
             Ibar = tqdm(train_dataloader)
+            loss_sum = 0
+            cnt = 0
             for batch in Ibar:
                 self.q_encoder.train()
                 self.p_encoder.train()
@@ -311,6 +327,8 @@ class DenseRetriever:
 
                 # 학습하면서 loss 볼 수 있도록 tqdm postfix 추가
                 Ibar.set_postfix(loss=loss.item())
+                loss_sum += loss.item()
+                cnt += 1
 
                 loss.backward()
                 optimizer.step()
@@ -321,6 +339,58 @@ class DenseRetriever:
 
                 torch.cuda.empty_cache()
 
+            # Epoch End
+            print(f"Avg loss : {loss_sum / cnt:0.4f}")
+
+            # Validation
+            if self.do_valid:
+                VIbar = tqdm(valid_dataloader)
+                for batch in VIbar:
+                    self.q_encoder.eval()
+                    self.p_encoder.eval()
+
+                    targets = torch.arange(0, 8).long()
+                    if torch.cuda.is_available():
+                        targets = targets.to("cuda")
+                        batch = tuple(t.cuda() for t in batch)
+                    p_inputs = {
+                        "input_ids": batch[0],
+                        "attention_mask": batch[1],
+                        "token_type_ids": batch[2],
+                    }
+
+                    q_inputs = {
+                        "input_ids": batch[3],
+                        "attention_mask": batch[4],
+                        "token_type_ids": batch[5],
+                    }
+                    p_outputs = self.p_encoder(
+                        **p_inputs
+                    )  # (batch_size, emb_dim) or (batch_size*(num_neg+1), emb_dim)
+                    q_outputs = self.q_encoder(**q_inputs)  # (batch_size, emb_dim)
+
+                    sim_scores = torch.matmul(
+                        q_outputs, torch.transpose(p_outputs, 0, 1)
+                    )
+                    sim_scores = F.log_softmax(sim_scores, dim=1)
+                    loss = F.nll_loss(sim_scores, targets)
+                    VIbar.set_postfix(loss=loss.item())
+                    loss_sum += loss.item()
+                    cnt += 1
+                    global_step += 1
+
+                    torch.cuda.empty_cache()
+
+                avg_loss = loss_sum / cnt
+                print(f"Val Avg loss : {avg_loss:0.4f}")
+                if avg_loss < min_val_loss:
+                    os.makedirs("encoders/val_best", exist_ok=True)
+                    self.save_trained_encoders(
+                        ".encoders/val_best/p_encoder", ".encoders/val_best/q_encoder"
+                    )
+
+        # Load best encoder on train end
+        self.load_encoders("./val_best/p_encoder", "./val_best/q_encoder")
         return self.p_encoder, self.q_encoder
 
     def get_dense_embedding(self):
@@ -403,7 +473,7 @@ class DenseRetriever:
 
     def retrieve(self, query_or_dataset, topk=5):
         total = []
-        for example in query_or_dataset:
+        for example in tqdm(query_or_dataset, desc="Dense Retrieval"):
             tmp = {
                 "question": example["question"],
                 "id": example["id"],
@@ -422,7 +492,7 @@ class DenseRetriever:
             for i in range(len(relevant_doc_for_df)):
                 tmp[f"context{i + 1}"] = relevant_doc_for_df[i]
 
-        total.append(tmp)
+            total.append(tmp)
 
         # inference를 위한 df 반환
         cqas = pd.DataFrame(total)
@@ -467,9 +537,40 @@ class DenseRetriever:
         else:
             self.isSBert = False
 
+    def load_encoders(self, p_encoder_ckpt, q_encoder_ckpt):
+        if self.isRoberta:
+            self.p_encoder = RoBertaEncoder.from_pretrained(p_encoder_ckpt)
+            self.q_encoder = RoBertaEncoder.from_pretrained(q_encoder_ckpt)
+
+        elif self.isBart:
+            self.p_encoder = BartEncoder.from_pretrained(p_encoder_ckpt)
+            self.q_encoder = BartEncoder.from_pretrained(q_encoder_ckpt)
+
+        elif self.isT5:
+            self.p_encoder = T5Encoder.from_pretrained(p_encoder_ckpt)
+            self.q_encoder = T5Encoder.from_pretrained(q_encoder_ckpt)
+
+        elif self.isElectra:
+            self.p_encoder = ElectraEncoder.from_pretrained(p_encoder_ckpt)
+            self.q_encoder = ElectraEncoder.from_pretrained(q_encoder_ckpt)
+
+        elif self.isSBert:
+            self.p_encoder = SBertEncoder.from_pretrained(p_encoder_ckpt)
+            self.q_encoder = SBertEncoder.from_pretrained(q_encoder_ckpt)
+
+        else:
+            if self.use_HFBert:
+                print("Using HFBert Model")
+                self.p_encoder = HFBertEncoder.init_encoder(cfg_name=p_encoder_ckpt)
+                self.q_encoder = HFBertEncoder.init_encoder(cfg_name=q_encoder_ckpt)
+            else:
+                print("Using Bert Model")
+                self.p_encoder = BertEncoder.from_pretrained(p_encoder_ckpt)
+                self.q_encoder = BertEncoder.from_pretrained(q_encoder_ckpt)
+
 
 if __name__ == "__main__":
-    wandb_name = "13_dense_validation_test"
+    wandb_name = "26_HFBert_DPR_validation2"
 
     wandb.init(
         project="nlp07_mrc11",
@@ -509,6 +610,12 @@ if __name__ == "__main__":
         type=str,
         help="",
     )
+    parser.add_argument(
+        "--use_HFBert",
+        default=False,
+        type=bool,
+        help="",
+    )
 
     args = parser.parse_args()
     print(args)
@@ -536,6 +643,7 @@ if __name__ == "__main__":
         p_encoder_ckpt=args.p_encoder_ckpt,
         q_encoder_ckpt=args.q_encoder_ckpt,
         stage="test",
+        use_HFBert=args.use_HFBert,
     )
 
     query = "대통령을 포함한 미국의 행정부 견제권을 갖는 국가 기관은?"
@@ -555,26 +663,26 @@ if __name__ == "__main__":
             print("correct retrieval result by faiss", df["correct"].sum() / len(df))
 
     else:
-        with timer("bulk query by exhaustive search"):
-            top_k = 50  # ground truth 를 확인할 passage 개수
-            term = 5  # term 단위로 확인함
+        # with timer("bulk query by exhaustive search"):
+        top_k = 50  # ground truth 를 확인할 passage 개수
+        term = 5  # term 단위로 확인함
 
-            # 10 에서 부터 1/2 씩 감소 시키면서 계산 check_passage_cnt, term
-            weight = [(1 / 2**i) for i in range(0, top_k // term)]
+        # 10 에서 부터 1/2 씩 감소 시키면서 계산 check_passage_cnt, term
+        weight = [(1 / 2**i) for i in range(0, top_k // term)]
 
-            retriever.get_dense_embedding()
-            df = retriever.retrieve(full_ds, top_k)
+        retriever.get_dense_embedding()
+        df = retriever.retrieve(full_ds, top_k)
 
-            df.to_csv("dense_result.csv", index=False)
+        df.to_csv("dense_result.csv", index=False)
 
-            df["correct"] = df["original_context"] == df["context"]
-            print(
-                "correct retrieval result by exhaustive search",
-                df["correct"].sum() / len(df),
-            )
+        df["correct"] = df["original_context"] == df["context"]
+        print(
+            "correct retrieval result by exhaustive search",
+            df["correct"].sum() / len(df),
+        )
 
-            # # check retrieval
-            retieval_logging.retrieval_check(df, weight, top_k, term)
+        # # check retrieval
+        retieval_logging.retrieval_check(df, weight, top_k, term)
 
         # 단일 쿼리 에러가 나서 주석처리
         # with timer("single query by exhaustive search"):
