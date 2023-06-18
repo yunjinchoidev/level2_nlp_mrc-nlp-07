@@ -63,7 +63,10 @@ class DataTrainingArguments:
     """
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
-
+    context_path: Optional[str] = field(
+        default="wikipedia_documents.json",
+        metadata={"help": "Name of passage file"}
+    )
     dataset_name: Optional[str] = field(
         default="../data/train_dataset",
         metadata={"help": "The name of the dataset to use."},
