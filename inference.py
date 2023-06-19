@@ -121,7 +121,7 @@ def run_sparse_retrieval(
 
     if data_args.retriever == "tfidf":
         retriever = SparseRetrieval(
-            tokenize_fn=tokenize_fn, data_path=data_path, context_path=context_path
+            tokenize_fn=tokenize_fn, data_path=data_path, context_path=data_args.context_path
         )
         retriever.get_sparse_embedding()
 
@@ -138,7 +138,7 @@ def run_sparse_retrieval(
         bm25plus_retriever = BM25PlusRetriever(
             model_name_or_path="klue/bert-base",
             data_path=data_path,
-            context_path=context_path,
+            context_path=data_args.context_path
         )
         df = bm25plus_retriever.retrieve(
             datasets["validation"], topk=data_args.top_k_retrieval
@@ -197,7 +197,7 @@ def run_dense_retrieval(
 
     retriever = DenseRetriever(
         data_path=data_path,
-        context_path=os.path.join(data_path, context_path),
+        context_path=os.path.join(data_path, data_args.context_path),
         model_name_or_path=model_name_or_path,
         p_encoder_ckpt=p_encoder_ckpt,
         q_encoder_ckpt=q_encoder_ckpt,
