@@ -162,6 +162,8 @@ cython_debug/
 *.pkl
 *.ckpt
 *.pt
+*.json
+*.bin
 
 baseline/wandb
 baseline/wandb/latest-run
