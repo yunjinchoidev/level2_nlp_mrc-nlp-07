@@ -13,6 +13,8 @@ import os
 import pickle
 from typing import List, Tuple, NoReturn, Optional, Union
 from datasets import Dataset
+from datasets import Dataset, DatasetDict, Features, Sequence, Value, load_from_disk
+import argparse
 
 
 def set_seed(random_seed):
@@ -31,7 +33,7 @@ class SparseRetrieval:
         tokenize_fn,
         data_path: Optional[str] = "../../data/",
         context_path: Optional[str] = "wikipedia_documents.json",
-    ) -> NoReturn:
+    ):
         self.data_path = data_path
         with open(os.path.join(data_path, context_path), "r", encoding="utf-8") as f:
             wiki = json.load(f)
@@ -52,7 +54,7 @@ class SparseRetrieval:
         self.p_embedding = None  # get_sparse_embedding()로 생성합니다
         self.indexer = None  # build_faiss()로 생성합니다.
 
-    def get_sparse_embedding(self) -> NoReturn:
+    def get_sparse_embedding(self):
         # Pickle을 저장합니다.
         pickle_name = f"sparse_embedding.bin"
         tfidfv_name = f"tfidv.bin"
@@ -103,6 +105,13 @@ class SparseRetrieval:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="")
+    parser.add_argument("--use_bulk", default=False, type=bool)
+    parser.add_argument("--topk", default=2, type=int)
+    parser.add_argument("--data_path", default="../../data/train_dataset", type=str)
+    parser.add_argument("--save_path", default="../../data/train_with_neg", type=str)
+    args = parser.parse_args()
+
     model_checkpoint = "klue/bert-base"
     tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
     tokenize_fn = lambda x: tokenizer.tokenize(x)
@@ -110,7 +119,7 @@ if __name__ == "__main__":
 
     retriever.get_sparse_embedding()
 
-    data_path = "../../data/train_dataset"
+    data_path = args.data_path
     datasets = load_from_disk(data_path)
 
     train = pd.DataFrame(
@@ -118,12 +127,16 @@ if __name__ == "__main__":
     )
     negative_examples = []
     for idx, query in tqdm(enumerate(train["question"])):
-        doc_score, doc_indices = retriever.get_relevant_doc(query, k=16)
+        doc_score, doc_indices = retriever.get_relevant_doc(query, k=args.topk + 1)
         ground_truth = train["context"][idx]
         relevant_doc = [retriever.contexts[idx] for idx in doc_indices]
         if ground_truth in relevant_doc:
             del relevant_doc[relevant_doc.index(ground_truth)]
-        negative_examples.append(relevant_doc[:15])
+
+        if args.use_bulk:
+            negative_examples.append(relevant_doc[: args.topk])
+        else:
+            negative_examples.append(relevant_doc[0])
     train["negative_examples"] = negative_examples
     train = train.drop(
         columns=[
@@ -149,7 +162,9 @@ if __name__ == "__main__":
                 feature=Value(dtype="string", id=None),
                 length=-1,
                 id=None,
-            ),
+            )
+            if args.use_bulk
+            else Value(dtype="string", id=None),
         }
     )
     new_datasets = DatasetDict(
@@ -158,4 +173,4 @@ if __name__ == "__main__":
             "validation": datasets["validation"],
         }
     )
-    new_datasets.save_to_disk("../../data/train_with_neg")
+    new_datasets.save_to_disk(args.save_path)

@@ -306,12 +306,12 @@ class DenseRetriever:
                 # negative sampling을 사용할 경우의 sim_scores
                 if self.use_neg_sampling:
                     p_outputs = p_outputs.view(
-                        args.per_device_train_batch_size, -1, self.num_neg + 1
+                        args.per_device_train_batch_size, self.num_neg + 1, -1
                     )
-                    q_outputs = q_outputs.view(args.per_device_train_batch_size, 1, -1)
+                    q_outputs = q_outputs.view(args.per_device_train_batch_size, -1, 1)
 
                     sim_scores = torch.bmm(
-                        q_outputs, p_outputs
+                        p_outputs, q_outputs
                     ).squeeze()  # (batch_size, num_neg+1)
                     sim_scores = sim_scores.view(args.per_device_train_batch_size, -1)
 
@@ -570,7 +570,7 @@ class DenseRetriever:
 
 
 if __name__ == "__main__":
-    wandb_name = "26_HFBert_DPR_validation2"
+    wandb_name = "31_Bert_hard_plus_in-batch_loss-norm_best"
 
     wandb.init(
         project="nlp07_mrc11",
