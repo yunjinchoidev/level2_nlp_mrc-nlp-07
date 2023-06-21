@@ -63,9 +63,9 @@ class DataTrainingArguments:
     """
     Arguments pertaining to what data we are going to input our model for training and eval.
     """
+
     context_path: Optional[str] = field(
-        default="wikipedia_documents.json",
-        metadata={"help": "Name of passage file"}
+        default="wikipedia_documents.json", metadata={"help": "Name of passage file"}
     )
     dataset_name: Optional[str] = field(
         default="../data/train_dataset",
@@ -126,4 +126,14 @@ class DataTrainingArguments:
     use_dense: bool = field(default=False, metadata={"help": "Whether to use DPR"})
     retriever: str = field(
         default="tfidf", metadata={"help": "type of retriever to use"}
+    )
+    retrieval_split: bool = field(
+        default=False, metadata={"help": "Whether to use split retrieval"}
+    )
+    retrieval_result_save: bool = field(
+        default=False, metadata={"help": "Whether to save retrieval result"}
+    )
+    retrieval_data_path: str = field(
+        default="./outputs/project/retrieval.csv",
+        metadata={"help": "Path to load retrieval result"},
     )

@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from datasets import Dataset, concatenate_datasets, load_from_disk
 from transformers import AutoTokenizer
+
 # from sklearn.feature_extraction.text import TfidfVectorizer
 from tqdm.auto import tqdm
 import wandb
@@ -17,6 +18,8 @@ import datetime
 from pytz import timezone
 from utils import retieval_logging
 from rank_bm25 import BM25Plus
+import os
+
 
 @contextmanager
 def timer(name):
@@ -30,7 +33,8 @@ class BM25PlusRetriever:
         self,
         model_name_or_path: Optional[str] = "klue/bert-base",
         data_path: Optional[str] = "../data/",
-        context_path: Optional[str] = "wikipedia_documents.json"
+        context_path: Optional[str] = "wikipedia_documents.json",
+        retrieval_split=False,
     ) -> None:
         """
         Arguments:
@@ -48,16 +52,21 @@ class BM25PlusRetriever:
         """
 
         self.data_path = data_path
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name_or_path) # default fast tokenizer if available
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_name_or_path
+        )  # default fast tokenizer if available
         self.contexts = None
         self.ids = None
         self.tokenized_contexts = None
         self.bm25plus = None
-        
+        self.retrieval_split = retrieval_split
+
         context_name = context_path.split(".")[0]
-        tokenized_wiki_path = os.path.join(data_path, context_name+"_tokenized.bin")
-        print(f"context path:{os.path.join(data_path, context_path)}, tokenized context path: {tokenized_wiki_path}")        
-        
+        tokenized_wiki_path = os.path.join(data_path, context_name + "_tokenized.bin")
+        print(
+            f"context path:{os.path.join(data_path, context_path)}, tokenized context path: {tokenized_wiki_path}"
+        )
+
         # contexts load
         with open(os.path.join(data_path, context_path), "r", encoding="utf-8") as f:
             wiki = json.load(f)
@@ -68,7 +77,7 @@ class BM25PlusRetriever:
         )  # set 은 매번 순서가 바뀌므로
         print(f"Lengths of unique contexts : {len(self.contexts)}")
         self.ids = list(range(len(self.contexts)))
-        
+
         # context 미리 토큰화
         # tokenized_wiki_path = {context_name}_tokenized.bin
         if os.path.isfile(tokenized_wiki_path):
@@ -76,7 +85,7 @@ class BM25PlusRetriever:
             with open(tokenized_wiki_path, "rb") as file:
                 self.tokenized_contexts = pickle.load(file)
             print("Contexts pickle loaded.")
-        else: 
+        else:
             # 토큰화 된 context 파일 없으면 생성
             self.tokenized_contexts = []
             for doc in tqdm(self.contexts, desc="Tokenizing context"):
@@ -85,14 +94,17 @@ class BM25PlusRetriever:
             with open(tokenized_wiki_path, "wb") as f:
                 pickle.dump(self.tokenized_contexts, f)
             print("Tokenized contexts pickle saved.")
-            
+
         # Fit tokenized_contexts to BM25Plus
         self.bm25plus = BM25Plus(self.tokenized_contexts)
         print("Tokenized contexts fitted to BM25Plus.")
-        
 
     def retrieve(
-        self, query_or_dataset: Union[str, Dataset], topk: Optional[int] = 1
+        self,
+        query_or_dataset: Union[str, Dataset],
+        topk: Optional[int] = 1,
+        retrieval_result_save=False,
+        output_dir="./outputs",
     ) -> Union[Tuple[List, List], pd.DataFrame]:
         """
         Arguments:
@@ -128,7 +140,10 @@ class BM25PlusRetriever:
             with timer("BM25+ retrieval"):
                 doc_scores = []
                 doc_indices = []
-                for query in tqdm(query_or_dataset["question"], desc="Retrieving documents for all questions"):
+                for query in tqdm(
+                    query_or_dataset["question"],
+                    desc="Retrieving documents for all questions",
+                ):
                     scores, indices = self.get_relevant_doc(query, k=topk)
                     doc_scores.append(scores)
                     doc_indices.append(indices)
@@ -141,9 +156,9 @@ class BM25PlusRetriever:
                     "question": example["question"],
                     "id": example["id"],
                     # Retrieve한 Passage의 id, context를 반환합니다.
-                    "context": " ".join(
-                        [self.contexts[pid] for pid in doc_indices[idx]]
-                    ),
+                    "context": [self.contexts[pid] for pid in doc_indices[idx]]
+                    if self.retrieval_split
+                    else " ".join([self.contexts[pid] for pid in doc_indices[idx]]),
                 }
                 if "context" in example.keys() and "answers" in example.keys():
                     # validation 데이터를 사용하면 ground_truth context와 answer도 반환합니다.
@@ -153,11 +168,17 @@ class BM25PlusRetriever:
                 # 평가를 위한 df column 만들어주기
                 for i in range(topk):
                     tmp["context" + str(i + 1)] = self.contexts[doc_indices[idx][i]]
-                tmp['score'] = doc_scores[idx][:]
+                tmp["score"] = doc_scores[idx][:]
 
                 total.append(tmp)
 
             cqas = pd.DataFrame(total)
+            if retrieval_result_save:
+                save_df = cqas[["id", "question", "context"]]
+                os.makedirs(output_dir, exist_ok=True)
+                save_path = os.path.join(output_dir, "retrieval_result.csv")
+                save_df.to_csv(save_path, index=False)
+                print(f"Retrieval result saved at {save_path}")
             return cqas
 
     def get_relevant_doc(self, query: str, k: Optional[int] = 1) -> Tuple[List, List]:
@@ -171,16 +192,19 @@ class BM25PlusRetriever:
 
         tokenized_query = self.tokenizer(query)["input_ids"][1:-1]
 
-        scores = [(val, idx) for idx, val in enumerate(self.bm25plus.get_scores(tokenized_query))]
+        scores = [
+            (val, idx)
+            for idx, val in enumerate(self.bm25plus.get_scores(tokenized_query))
+        ]
         scores.sort(reverse=True)
         scores = scores[:k]
-            
+
         doc_scores = [val for val, _ in scores]
         doc_indices = [idx for _, idx in scores]
-            
+
         return doc_scores, doc_indices
 
-      
+
 if __name__ == "__main__":
     import argparse
 
@@ -205,7 +229,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     print(args)
-    
+
     wandb_name = args.wandb_name
 
     wandb.init(
@@ -225,18 +249,17 @@ if __name__ == "__main__":
     )  # train dev 를 합친 4192 개 질문에 대해 모두 테스트
     print("*" * 40, "query dataset", "*" * 40)
     print(full_ds)
-    
+
     bm25plus_retriever = BM25PlusRetriever(
         model_name_or_path=args.model_name_or_path,
         data_path=args.data_path,
-        context_path=args.context_path
+        context_path=args.context_path,
     )
 
     with timer("bulk query by exhaustive search"):
-        
         top_k = 50  # ground truth 를 확인할 passage 개수
         term = 5  # term 단위로 확인함
-        
+
         # 10 에서 부터 1/2 씩 감소 시키면서 계산 check_passage_cnt, term
         weight = [(1 / 2**i) for i in range(0, top_k // term)]
 
