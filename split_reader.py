@@ -131,7 +131,7 @@ if __name__ == "__main__":
 
         # query와 각 context를 합쳐 각각 토큰화 후 하나의 tensor로 concat
         # context끼리 concat 되는 일 없이 한 텐서 안에는 단일 passage만 존재
-        for k in range(topk):
+        for k in range(len(context)):
             tokens = tokenizer(
                 query,
                 context[k],
