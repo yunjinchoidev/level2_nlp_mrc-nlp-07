@@ -41,12 +41,14 @@ class DenseRetriever:
         num_neg=15,
         use_HFBert=True,
         do_valid=True,
+        retrieval_split=False,
     ):
         self.model_name_or_path = model_name_or_path
         self.stage = stage
         self.num_neg = num_neg
         self.use_neg_sampling = use_neg_sampling
         self.use_HFBert = use_HFBert
+        self.retrieval_split = retrieval_split
 
         if p_encoder_ckpt == None:
             self.p_encoder_ckpt = model_name_or_path
@@ -471,17 +473,22 @@ class DenseRetriever:
         # 유사한 문서 list, 점수, 순위 반환
         return relevant_doc, dot_prod_scores, rank
 
-    def retrieve(self, query_or_dataset, topk=5):
+    def retrieve(
+        self,
+        query_or_dataset,
+        topk=5,
+        retrieval_result_save=False,
+        output_dir="./outputs",
+    ):
+        print(f"Using split : {self.retrieval_split}")
         total = []
         for example in tqdm(query_or_dataset, desc="Dense Retrieval"):
             tmp = {
                 "question": example["question"],
                 "id": example["id"],
-                "context": " ".join(
-                    self.get_relevant_docs(example["question"], topk)[
-                        0
-                    ]  # 쿼리와 관련한 문서 리스트 가져오는 부분
-                ),
+                "context": self.get_relevant_docs(example["question"], topk)[0]
+                if self.retrieval_split
+                else " ".join(self.get_relevant_docs(example["question"], topk)[0]),
             }
             if "context" in example.keys() and "answers" in example.keys():
                 tmp["original_context"] = example["context"]
@@ -496,6 +503,12 @@ class DenseRetriever:
 
         # inference를 위한 df 반환
         cqas = pd.DataFrame(total)
+        if retrieval_result_save:
+            save_df = cqas[["id", "question", "context"]]
+            os.makedirs(output_dir, exist_ok=True)
+            save_path = os.path.join(output_dir, "retrieval_result.csv")
+            save_df.to_csv(save_path, index=False)
+            print(f"Retrieval result saved at {save_path}")
         return cqas
 
     # 추후에 인코더를 학습시키지 않고 바로 사용할 수 있도록 저장

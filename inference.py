@@ -28,7 +28,7 @@ from transformers import (
     set_seed,
 )
 from utils_qa import check_no_error, postprocess_qa_predictions
-import os
+
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,8 @@ def main():
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
         config=config,
     )
+    if data_args.retrieval_split:
+        print("Using split retrieval")
 
     # True일 경우 : run passage retrieval
     if data_args.eval_retrieval:
@@ -91,6 +93,8 @@ def main():
                 datasets,
                 training_args,
                 data_args,
+                retrieval_split=data_args.retrieval_split,
+                retrieval_result_save=data_args.retrieval_result_save,
             )
         elif data_args.use_dense or data_args.retriever == "dpr":
             datasets = run_dense_retrieval(
@@ -102,11 +106,18 @@ def main():
                 model_name_or_path=model_args.encoder_base,
                 stage="test",
                 use_HFBert=model_args.use_HFBert,
+                retrieval_split=data_args.retrieval_split,
+                retrieval_result_save=data_args.retrieval_result_save,
             )
 
     # eval or predict mrc model
     if training_args.do_eval or training_args.do_predict:
-        run_mrc(data_args, training_args, model_args, datasets, tokenizer, model)
+        if data_args.retrieval_split:
+            run_split_mrc(
+                data_args, training_args, model_args, datasets, tokenizer, model
+            )
+        else:
+            run_mrc(data_args, training_args, model_args, datasets, tokenizer, model)
 
 
 def run_sparse_retrieval(
@@ -116,12 +127,16 @@ def run_sparse_retrieval(
     data_args: DataTrainingArguments,
     data_path: str = "../data",
     context_path: str = "wikipedia_documents.json",
+    retrieval_split=False,
+    retrieval_result_save=False,
 ) -> DatasetDict:
     # Query에 맞는 Passage들을 Retrieval 합니다.
 
     if data_args.retriever == "tfidf":
         retriever = SparseRetrieval(
-            tokenize_fn=tokenize_fn, data_path=data_path, context_path=data_args.context_path
+            tokenize_fn=tokenize_fn,
+            data_path=data_path,
+            context_path=data_args.context_path,
         )
         retriever.get_sparse_embedding()
 
@@ -138,17 +153,28 @@ def run_sparse_retrieval(
         bm25plus_retriever = BM25PlusRetriever(
             model_name_or_path="klue/bert-base",
             data_path=data_path,
-            context_path=data_args.context_path
+            context_path=data_args.context_path,
+            retrieval_split=retrieval_split,
         )
         df = bm25plus_retriever.retrieve(
-            datasets["validation"], topk=data_args.top_k_retrieval
+            datasets["validation"],
+            topk=data_args.top_k_retrieval,
+            retrieval_result_save=retrieval_result_save,
+            output_dir=training_args.output_dir,
         )
 
     # test data 에 대해선 정답이 없으므로 id question context 로만 데이터셋이 구성됩니다.
     if training_args.do_predict:
         f = Features(
             {
-                "context": Value(dtype="string", id=None),
+                # split retrieval 시 사용
+                "context": Sequence(
+                    feature=Value(dtype="string", id=None),
+                    length=-1,
+                    id=None,
+                )
+                if retrieval_split
+                else Value(dtype="string", id=None),
                 "id": Value(dtype="string", id=None),
                 "question": Value(dtype="string", id=None),
             }
@@ -189,6 +215,8 @@ def run_dense_retrieval(
     q_encoder_ckpt: str = None,
     stage="train",
     use_HFBert=False,
+    retrieval_split=False,
+    retrieval_result_save=False,
 ) -> DatasetDict:
     # Query에 맞는 Passage들을 Retrieval 합니다.
     if p_encoder_ckpt == None and q_encoder_ckpt == None:
@@ -203,16 +231,28 @@ def run_dense_retrieval(
         q_encoder_ckpt=q_encoder_ckpt,
         stage="test",
         use_HFBert=use_HFBert,
+        retrieval_split=retrieval_split,
     )
     retriever.get_dense_embedding()
 
-    df = retriever.retrieve(datasets["validation"], topk=data_args.top_k_retrieval)
+    df = retriever.retrieve(
+        datasets["validation"],
+        topk=data_args.top_k_retrieval,
+        retrieval_result_save=retrieval_result_save,
+        output_dir=training_args.output_dir,
+    )
 
     # test data 에 대해선 정답이 없으므로 id question context 로만 데이터셋이 구성됩니다.
     if training_args.do_predict:
         f = Features(
             {
-                "context": Value(dtype="string", id=None),
+                "context": Sequence(
+                    feature=Value(dtype="string", id=None),
+                    length=-1,
+                    id=None,
+                )
+                if retrieval_split
+                else Value(dtype="string", id=None),
                 "id": Value(dtype="string", id=None),
                 "question": Value(dtype="string", id=None),
             }
@@ -238,6 +278,7 @@ def run_dense_retrieval(
         )
         df = df[["answers", "context", "id", "question"]]
 
+    df.to_csv("./dense_retrieval_result.csv", index=False)
     datasets = DatasetDict({"validation": Dataset.from_pandas(df, features=f)})
     return datasets
 
@@ -393,6 +434,207 @@ def run_mrc(
 
         trainer.log_metrics("test", metrics)
         trainer.save_metrics("test", metrics)
+
+
+class QADataset(Dataset):
+    def __init__(self, p_inputs):
+        self.input_ids = p_inputs["input_ids"]
+        self.attention_mask = p_inputs["attention_mask"]
+        self.offset_mapping = p_inputs["offset_mapping"]
+        self.original_context_idx = p_inputs["original_context_idx"]
+
+    def __len__(self):
+        return len(self.input_ids)
+
+    def __getitem__(self, index):
+        input_ids = self.input_ids[index].to("cuda")
+        attention_mask = self.attention_mask[index].to("cuda")
+        offset_mapping = self.offset_mapping[index].to("cuda")
+        original_context_idx = self.original_context_idx[index]
+        item = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "offset_mapping": offset_mapping,
+            "original_context_idx": original_context_idx,
+        }
+        return item
+
+
+import os
+import torch
+from tqdm import tqdm
+from torch.utils.data import DataLoader
+import re
+import json
+
+
+def run_split_mrc(data_args, training_args, model_args, datasets, tokenizer, model):
+    questions = datasets["validation"]["question"]
+    contexts = datasets["validation"]["context"]
+    q_ids = datasets["validation"]["id"]
+    model = model.to("cuda").eval()
+    # 파라미터
+    os.makedirs(training_args.output_dir, exist_ok=True)
+    batch_size = 8
+    topk = len(contexts[0])
+
+    answer_dict = {}
+    n_best_dict = {}
+    n_best_size = 20
+    p_bar = tqdm(range(len(datasets["validation"])))
+    for q_idx in p_bar:
+        # 테스트할 문항 하나씩 가져오기
+        answer = ""
+        query = questions[q_idx]
+        context = contexts[q_idx]  # [passage-1, passage-2 , ... , passage-k]
+
+        input_ids = None
+        attention_mask = None
+        offset_mapping = None
+        original_context_idx = []
+
+        # query와 각 context를 합쳐 각각 토큰화 후 하나의 tensor로 concat
+        # context끼리 concat 되는 일 없이 한 텐서 안에는 단일 passage만 존재
+        for k in range(topk):
+            tokens = tokenizer(
+                query,
+                context[k],
+                truncation="only_second",
+                max_length=data_args.max_seq_length,
+                stride=data_args.doc_stride,
+                return_overflowing_tokens=True,
+                padding="max_length",
+                return_tensors="pt",
+                return_offsets_mapping=True,
+            )
+            if k == 0:
+                input_ids = tokens["input_ids"]
+                attention_mask = tokens["attention_mask"]
+                offset_mapping = tokens["offset_mapping"]
+                # truncation 되면 여러 passage가 생기므로 그 개수만큼 context_idx 추가
+                original_context_idx.extend(
+                    [k for _ in range(len(tokens["input_ids"]))]
+                )
+            else:
+                input_ids = torch.concat((input_ids, tokens["input_ids"]))
+                attention_mask = torch.concat(
+                    (attention_mask, tokens["attention_mask"])
+                )
+                offset_mapping = torch.concat(
+                    (offset_mapping, tokens["offset_mapping"])
+                )
+                original_context_idx.extend(
+                    [k for _ in range(len(tokens["input_ids"]))]
+                )
+
+        # 입력 데이터 구성
+        input_data = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "offset_mapping": offset_mapping,
+            "original_context_idx": original_context_idx,
+        }
+
+        # 데이터셋 및 데이터로더 구성
+        valid_dataset = QADataset(input_data)
+        valid_dataloader = DataLoader(valid_dataset, batch_size=batch_size)
+        n_best_list = []
+        max_logit = 0
+        for batch_idx, batch in enumerate(valid_dataloader):
+            # 모델에 안 들어가도 될 입력(답변 구할 때 필요한 정보)은 pop하여 빼주기
+            original_context_idx = batch.pop("original_context_idx")
+            offset_mapping = batch.pop("offset_mapping")
+
+            # 모델 forward
+            outputs = model(**batch)
+
+            # 배치마다 담긴 길이가 다르므로 구해주기
+            batch_len = len(outputs["start_logits"])
+
+            # 각 query+passage 쌍에서의 start와 end의 max, argmax 구하기
+            # 총 batch_len개의 max, argmax 존재
+            s_max = outputs["start_logits"].max(dim=1)
+            e_max = outputs["end_logits"].max(dim=1)
+
+            # 각 query+passage 쌍에서 답변 확률과 위치 구하기
+            for idx in range(batch_len):
+                # 원래 토큰으로 돌리기 위한 offset
+                offsets = offset_mapping[idx]
+
+                # span의 확률
+                start_logit = s_max.values[idx].item()
+                end_logit = e_max.values[idx].item()
+                logit = start_logit + end_logit
+                s_pos = offsets[s_max.indices[idx].item()][0]
+                e_pos = offsets[e_max.indices[idx].item()][1]
+                original_context = context[original_context_idx[idx]]
+                text = original_context[s_pos:e_pos]
+
+                result = {
+                    "start_logit": start_logit,
+                    "end_logit": end_logit,
+                    "text": text,
+                    "score": start_logit + end_logit,
+                }
+                n_best_list.append(result)
+
+                if max_logit < logit:
+                    # 답변의 길이가 0이거나 [CLS]토큰이 답변이 된 케이스들 제외
+                    if s_pos == e_pos:
+                        continue
+
+                    # 끝나는 위치가 시작점보다 앞에 위치한 케이스 제외
+                    if e_pos < s_pos:
+                        continue
+
+                    # 너무 긴 답변 제외
+                    if e_pos - s_pos > 30:
+                        continue
+
+                    max_logit = logit
+                    answer = original_context[s_pos:e_pos]
+
+        # GPU 공간을 위해 cache 비워주기
+        torch.cuda.empty_cache()
+
+        # answer 후처리
+        answer = answer.strip()
+        answer = re.sub(r"\\", "", answer)
+        answer = re.sub(r'""?', '"', answer)
+        answer = re.sub(r'^"|"$', "", answer)
+
+        # 진행 상황 볼 수 있게 postfix로 답변 보여주기
+        p_bar.set_postfix(answer=answer)
+        # n_best_list.sort(key=lambda x: x["score"])
+        # n_best_list = n_best_list[:n_best_size]
+        predictions = sorted(n_best_list, key=lambda x: x["score"], reverse=True)[
+            :n_best_size
+        ]
+
+        scores = np.array([x.pop("score") for x in predictions])
+        exp_scores = np.exp(scores - np.max(scores))
+        probs = exp_scores / exp_scores.sum()
+
+        for prob, pred in zip(probs, predictions):
+            pred["probability"] = prob
+
+        # 답변 추가하기
+        answer_dict[q_ids[q_idx]] = answer
+        n_best_dict[q_ids[q_idx]] = predictions
+
+    # 답변 저장하기
+    with open(
+        os.path.join(training_args.output_dir, "predictions.json"),
+        "w",
+        encoding="utf-8",
+    ) as f:
+        json.dump(answer_dict, f, indent=4, ensure_ascii=False)
+    with open(
+        os.path.join(training_args.output_dir, "nbest_predictions.json"),
+        "w",
+        encoding="utf-8",
+    ) as f:
+        json.dump(n_best_dict, f, indent=4, ensure_ascii=False)
 
 
 if __name__ == "__main__":
