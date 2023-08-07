@@ -49,9 +49,9 @@
 
 다양한 QA 시스템 중, **Open-Domain Question Answering (ODQA) 은 주어지는 지문이 따로 존재하지 않고 사전에 구축되어있는 Knowledge resource 에서 질문에 대답할 수 있는 문서를 찾는** 과정이 추가되기 때문에 더 어려운 문제입니다.
 
-<img width="400" alt="Untitled" src="./utils/img/first.png">
+<img width="700" alt="Untitled" src="./utils/img/first.png">
 
-<img width="400" alt="Untitled" src="./utils/img/two.png">
+<img width="700" alt="Untitled" src="./utils/img/two.png">
 
 ## 1.2 환경
 
@@ -80,7 +80,7 @@
 
 ## 3.2 타임라인
 
-<img width="400" alt="Untitled" src="./utils/img/0.png">
+<img width="700" alt="Untitled" src="./utils/img/0.png">
 
 
 ## 3.3 협업 문화
