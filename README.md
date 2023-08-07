@@ -109,9 +109,9 @@ target : answers
 
 - train dateset의 answer 의 길이는 평균적으로 6.2로, 대체로 단답형 답변이 많았다.
 
-<img width="500" alt="Untitled" src="./utils/img/1.png">
-<img width="500" alt="Untitled" src="./utils/img/2.png">
-<img width="500" alt="Untitled" src="./utils/img/3.png">
+<img width="300" alt="Untitled" src="./utils/img/1.png">
+<img width="300" alt="Untitled" src="./utils/img/2.png">
+<img width="300" alt="Untitled" src="./utils/img/3.png">
 
 ### 4-2-2 wiki data context 길이 분포 (TOP-10 제외)
 
