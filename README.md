@@ -109,15 +109,15 @@ target : answers
 
 - train dateset의 answer 의 길이는 평균적으로 6.2로, 대체로 단답형 답변이 많았다.
 
-<img width="200" alt="Untitled" src="./utils/img/1.png">
-<img width="200" alt="Untitled" src="./utils/img/2.png">
-<img width="200" alt="Untitled" src="./utils/img/3.png">
+<img width="500" alt="Untitled" src="./utils/img/1.png">
+<img width="500" alt="Untitled" src="./utils/img/2.png">
+<img width="500" alt="Untitled" src="./utils/img/3.png">
 
 ### 4-2-2 wiki data context 길이 분포 (TOP-10 제외)
 
 - 전반적으로 1000이하의 분포임을 확인하였다.
 
-<img width="400" alt="Untitled" src="./utils/img/4.png">
+<img width="500" alt="Untitled" src="./utils/img/4.png">
 
 
 ## 4-3. 전처리
@@ -151,17 +151,17 @@ target : answers
 
   TF-IDF
     
-  <img width="400" alt="Untitled" src="./utils/img/5.png">
+  <img width="500" alt="Untitled" src="./utils/img/5.png">
 
     
   BM25+
     
-  <img width="400" alt="Untitled" src="./utils/img/6.png">
+  <img width="500" alt="Untitled" src="./utils/img/6.png">
 
     
   DPR
     
-  <img width="400" alt="Untitled" src="./utils/img/7.png">
+  <img width="500" alt="Untitled" src="./utils/img/7.png">
     
     
     
@@ -238,11 +238,11 @@ target : answers
 
 EM
 
- <img width="400" alt="Untitled" src="./utils/img/8.png">
+ <img width="500" alt="Untitled" src="./utils/img/8.png">
 
 
 F1
- <img width="400" alt="Untitled" src="./utils/img/9.png">
+ <img width="500" alt="Untitled" src="./utils/img/9.png">
 
 
 ### 4-5-2-2. 레이어 추가
@@ -264,11 +264,11 @@ F1
 
 EM
 
-<img width="400" alt="Untitled" src="./utils/img/10.png">
+<img width="500" alt="Untitled" src="./utils/img/10.png">
 
 F1
 
-<img width="400" alt="Untitled" src="./utils/img/11.png">
+<img width="500" alt="Untitled" src="./utils/img/11.png">
 
 ### 4-5-2-3. 커리큘럼 러닝
 
@@ -287,11 +287,11 @@ F1
 
 EM
 
-<img width="400" alt="Untitled" src="./utils/img/12.png">
+<img width="500" alt="Untitled" src="./utils/img/12.png">
 
 F1
 
-<img width="400" alt="Untitled" src="./utils/img/13.png">
+<img width="500" alt="Untitled" src="./utils/img/13.png">
 
 ### 4-5-2-4. doc_stride 조정
 
@@ -389,7 +389,7 @@ F1
 | F1 | 76.2700 | 75.3400 |
 | 순위 | 10 | 12 |
 
-<img width="400" alt="Untitled" src="./utils/img/14.png">
+<img width="500" alt="Untitled" src="./utils/img/14.png">
 
 # 5. 자체 평가 의견
 
