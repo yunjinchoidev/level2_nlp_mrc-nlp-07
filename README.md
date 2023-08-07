@@ -213,11 +213,11 @@ target : answers
 - 가설 : DPR을 학습 시킬 때 hard example과 in-batch negative sampling을 함께 활용하였는데, hard example은 기존 passage와 임베딩이 비슷할 것이므로 hard example의 loss에 가중치를 주면 hard example에 대한 학습이 더 잘 될 것이다.
 - 실험 : in-batch negative의 개수만큼 hard example에 가중치를 주어 학습시킨다.
 - 실험 결과 : 기존 방법보다 retrieval 성능이 향상 된 것을 확인할 수 있었다.
-
-|  | retrival score |
-| --- | --- |
-| 기존 Loss | 0.7004 |
-| 가중치 준 Loss | 0.7826 |
+  
+  |  | retrival score |
+  | --- | --- |
+  | 기존 Loss | 0.7004 |
+  | 가중치 준 Loss | 0.7826 |
 
 ### 4-5-2. Reader
 
@@ -236,12 +236,13 @@ target : answers
 
 
 
-EM
+- EM
 
  <img width="500" alt="Untitled" src="./utils/img/8.png">
 
 
-F1
+- F1
+
  <img width="500" alt="Untitled" src="./utils/img/9.png">
 
 
@@ -262,13 +263,13 @@ F1
 
 
 
-EM
+- EM
 
-<img width="500" alt="Untitled" src="./utils/img/10.png">
+  <img width="500" alt="Untitled" src="./utils/img/10.png">
 
-F1
+- F1
 
-<img width="500" alt="Untitled" src="./utils/img/11.png">
+  <img width="500" alt="Untitled" src="./utils/img/11.png">
 
 ### 4-5-2-3. 커리큘럼 러닝
 
@@ -285,13 +286,13 @@ F1
     | 육하원칙 질문 부터 학습 | 65.833 | 74.077 |
 
 
-EM
+- EM
 
-<img width="500" alt="Untitled" src="./utils/img/12.png">
+  <img width="500" alt="Untitled" src="./utils/img/12.png">
 
-F1
+- F1
 
-<img width="500" alt="Untitled" src="./utils/img/13.png">
+  <img width="500" alt="Untitled" src="./utils/img/13.png">
 
 ### 4-5-2-4. doc_stride 조정
 
@@ -335,11 +336,11 @@ F1
 
 - 가설 : 앞서 뉴스기사데이터보다, 현재 train데이터와 가장 유사한 (wiki관련)데이터에 대힌 증강이 효과적일 것이다.
 - 실험 : KorQuAD1.0 데이터 1560개에 대하여 증강하여 증강효과를 분석하였다.
-- 실험 결과 : general한 예측을 위해 앙상블에서 적용하기로 결정하였다.
+- 실험 결과 : general한 예측을 위해 앙상블에서 적용하기로 결정하였다. 
 
-   |  | EM | F1 |
-      | --- | --- | --- |
-      | valid 기준 | 61.66667 | 71.72105 |
+  |  | EM | F1 |
+  | --- | --- | --- |
+  | valid 기준 | 61.66667 | 71.72105 |
 
 ### 4-5-2-8. 다른 Passage와 겹치지 않게 Truncation
 
@@ -383,11 +384,11 @@ F1
 - soft voting - average
     - 5개의 모델을 앙상블하여 nbest_predictions(n = 20)를 기준으로 prediction을 text별로 평균내어 가장 큰 값을 도출하였다.
 
-|  | public | private |
-| --- | --- | --- |
-| EM | 67.5000 | 62.7800 |
-| F1 | 76.2700 | 75.3400 |
-| 순위 | 10 | 12 |
+  |  | public | private |
+  | --- | --- | --- |
+  | EM | 67.5000 | 62.7800 |
+  | F1 | 76.2700 | 75.3400 |
+  | 순위 | 10 | 12 |
 
 <img width="500" alt="Untitled" src="./utils/img/14.png">
 
